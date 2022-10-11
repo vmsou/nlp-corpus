@@ -1,4 +1,4 @@
-from typing import TypedDict, Union, Literal
+from typing import TypedDict, Union, Literal, Iterable, Optional
 
 import requests
 import logging
@@ -31,7 +31,10 @@ class ArticleDict(TypedDict):
 def reports_from_text(text: str) -> list[str]:
     """ Extracts sentences from text string. """
     document: Doc = NLP(text)
-    reports: list[str] = [sent.text.strip().replace("\n", ' ').replace("\t", ' ') for sent in document.sents if sent.text.strip() != '']
+    reports: list[str] = []
+    for sent in document.sents:
+        text: str = sent.text.strip().replace("\n", ' ').replace("\t", ' ')
+        if text: reports.append(text)
     return reports
 
 
@@ -58,27 +61,62 @@ def reports_from_site(url: str, kind: Union[Literal["PDF"], Literal["HTML"]] = "
     return reports
 
 
-def scrape_scholar(query: str, limit: int = 5, lang: str = "en") -> list[ArticleDict]:
+def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[Iterable[str]] = None) -> list[ArticleDict]:
     """ Generates dict with information from Google Scholar articles. """
     print(f"Scraping '{query}' from Google Scholar...", end=' ')
 
     articles: list[dict[str, str]] = []
-    params: dict[str, str] = dict(q=query, hl=lang)
-    response: requests.Response = requests.get("https://scholar.google.com.br/scholar", params=params)
-    if response.status_code != 200:
-        logger.warning(f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
-        print("Failed.")
-        return articles
+    params: dict[str, str] = dict(q=query, hl=lang, start='0')
 
-    soup: bs4.BeautifulSoup = bs4.BeautifulSoup(response.text, "html.parser")
+    if exts is None:  # Any Extension
+        response: requests.Response = requests.get("https://scholar.google.com.br/scholar", params=params)
+        if response.status_code != 200:
+            logger.warning(f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
+            print("Failed.")
+            return articles
 
-    for article_div in soup.select(".gs_r.gs_or.gs_scl")[:limit]:
-        title: str = article_div.select_one(".gs_rt a").text
-        link: str = article_div.select_one(".gs_rt a")["href"]
-        doc_link: str = article_div.select_one(".gs_or_ggsm a")["href"]
-        doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(".gs_ctg2").text[1:-1]
-        article: ArticleDict = dict(title=title, link=link, doc_link=doc_link, doc_kind=doc_kind)
-        articles.append(article)
+        soup: bs4.BeautifulSoup = bs4.BeautifulSoup(response.text, "html.parser")
+        for article_div in soup.select(".gs_r.gs_or.gs_scl")[:limit]:
+            title: str = article_div.select_one(".gs_rt a").text
+            link: str = article_div.select_one(".gs_rt a")["href"]
+            doc_link: str = article_div.select_one(".gs_or_ggsm a")["href"]
+            doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(".gs_ctg2").text[1:-1]
+            article: ArticleDict = dict(title=title, link=link, doc_link=doc_link, doc_kind=doc_kind)
+            articles.append(article)
+    else:  # Only Defined Extensions
+        exts = set(exts)
+        count: int = 0
+        has_next: bool = True
+        while count < limit and has_next:
+            response: requests.Response = requests.get("https://scholar.google.com.br/scholar", params=params)
+            if response.status_code != 200:
+                logger.warning(f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
+                print("Failed.")
+                return articles
+
+            soup: bs4.BeautifulSoup = bs4.BeautifulSoup(response.text, "html.parser")
+            for article_div in soup.select(".gs_r.gs_or.gs_scl"):
+                if count >= limit: break
+
+                doc_div: Optional[bs4.element.Tag] = article_div.select_one(".gs_or_ggsm a")
+                if doc_div is None: continue
+                doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(".gs_ctg2").text[1:-1]
+                if doc_kind not in exts: continue
+
+                title: str = article_div.select_one(".gs_rt a").text
+                link: str = article_div.select_one(".gs_rt a")["href"]
+                doc_link: str = article_div.select_one(".gs_or_ggsm a")["href"]
+                article: ArticleDict = dict(title=title, link=link, doc_link=doc_link, doc_kind=doc_kind)
+                articles.append(article)
+                count += 1
+
+            # Find next button
+            if soup.select_one(".gs_ico_nav_next") is not None:
+                has_next = True
+                params["start"] = str(int(params['start']) + 10)
+            else:
+                has_next = False
+
     print("Done.")
     return articles
 
@@ -86,12 +124,13 @@ def scrape_scholar(query: str, limit: int = 5, lang: str = "en") -> list[Article
 def main() -> None:
     logger.debug("Program Start")
     subject: str = "Natural Language Processing"
-    articles: list[ArticleDict] = scrape_scholar(subject, 5, "en")
+    articles: list[ArticleDict] = scrape_scholar(subject, 5, "en", ["PDF", "HTML"])
+    # print(*articles, sep='\n')
     for article in articles:
         url: str = article["doc_link"]
         reports: list[str] = reports_from_site(url, kind=article['doc_kind'])
         print(f"{article['title']}({article['doc_link']}): {len(reports)} sentences.")
-        start: int = len(reports) // 3
+        start: int = len(reports) // 4
         for report in reports[start:start+3]:
             print(f"> '{report}'")
         print("...\n")
