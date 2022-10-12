@@ -1,4 +1,5 @@
-from typing import TypedDict, Union, Literal, Iterable, Optional
+from typing_extensions import TypedDict, Literal
+from typing import Union, Iterable, Optional, Dict, List
 
 import requests
 import logging
@@ -9,15 +10,6 @@ import pdfx
 
 from spacy.tokens.doc import Doc
 
-# Config
-logging.basicConfig(format="%(message)s", level=logging.ERROR)
-logger: logging.Logger = logging.getLogger("scraper")
-logger.setLevel(logging.INFO)
-
-NLP: spacy.Language = spacy.load("en_core_web_sm")
-
-HEADER: dict[str, str] = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
 
 # Type Alias
 class ArticleDict(TypedDict):
@@ -27,18 +19,44 @@ class ArticleDict(TypedDict):
     doc_kind: Union[Literal["PDF"], Literal["HTML"]]
 
 
+# Config
+logging.basicConfig(format="%(message)s", level=logging.ERROR)
+logger: logging.Logger = logging.getLogger("scraper")
+logger.setLevel(logging.INFO)
+
+IS_SCRAPING: bool = False
+DEFAULT_ARTICLES: List[ArticleDict] = [
+    ArticleDict(title="Natural language processing: an introduction",
+                doc_link="https://academic.oup.com/jamia/article/18/5/544/829676?ref=https%3A%2F%2Fcodemonkey.link&login=false",
+                doc_kind="HTML"),
+    ArticleDict(title="Your Guide to Natural Language Processing (NLP)",
+                doc_link="https://www.datasciencecentral.com/your-guide-to-natural-language-processing-nlp/",
+                doc_kind="HTML"),
+    ArticleDict(title="Natural language processing: State of the art, current trends and challenges",
+                doc_link="https://link.springer.com/article/10.1007/s11042-022-13428-4", doc_kind="HTML"),
+    ArticleDict(title="Overview of Artificial Intelligence and Role of Natural Language Processing in Big Data",
+                doc_link="https://www.datasciencecentral.com/overview-of-artificial-intelligence-and-role-of-natural-language",
+                doc_kind="HTML"),
+    ArticleDict(title="Automated encoding of clinical documents based on natural language processing",
+                doc_link="https://academic.oup.com/jamia/article/11/5/392/820006", doc_kind="HTML"),
+]
+NLP: spacy.Language = spacy.load("en_core_web_sm")
+
+HEADER: Dict[str, str] = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
 # Functions
-def reports_from_text(text: str) -> list[str]:
+def reports_from_text(text: str) -> List[str]:
     """ Extracts sentences from text string. """
     document: Doc = NLP(text)
-    reports: list[str] = []
+    reports: List[str] = []
     for sent in document.sents:
-        text: str = sent.text.strip().replace("\n", ' ').replace("\t", ' ')
+        text: str = sent.text.replace("\n", ' ').replace("\t", ' ')
         if text: reports.append(text)
     return reports
 
 
-def reports_from_site(url: str, kind: Union[Literal["PDF"], Literal["HTML"]] = "HTML") -> list[str]:
+def reports_from_site(url: str, kind: Union[Literal["PDF"], Literal["HTML"]] = "HTML") -> List[str]:
     """ Extracts sentences from website (PDF or HTML).  """
     print(f"Generating reports from site: {url}...", end=' ')
     response: requests.Response = requests.get(url, headers=HEADER)
@@ -56,22 +74,23 @@ def reports_from_site(url: str, kind: Union[Literal["PDF"], Literal["HTML"]] = "
             text += p.text
     else:
         logger.warning(f"Invalid document kind: {kind} for function reports_from_site()")
-    reports: list[str] = reports_from_text(text)
+    reports: List[str] = reports_from_text(text)
     print("Done.")
     return reports
 
 
-def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[Iterable[str]] = None) -> list[ArticleDict]:
+def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[Iterable[str]] = None) -> List[ArticleDict]:
     """ Generates dict with information from Google Scholar articles. """
     print(f"Scraping '{query}' from Google Scholar...", end=' ')
 
-    articles: list[dict[str, str]] = []
-    params: dict[str, str] = dict(q=query, hl=lang, start='0')
+    articles: List[Dict[str, str]] = []
+    params: Dict[str, str] = dict(q=query, hl=lang, start='0')
 
     if exts is None:  # Any Extension
         response: requests.Response = requests.get("https://scholar.google.com.br/scholar", params=params)
         if response.status_code != 200:
-            logger.warning(f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
+            logger.warning(
+                f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
             print("Failed.")
             return articles
 
@@ -80,7 +99,8 @@ def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[
             title: str = article_div.select_one(".gs_rt a").text
             link: str = article_div.select_one(".gs_rt a")["href"]
             doc_link: str = article_div.select_one(".gs_or_ggsm a")["href"]
-            doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(".gs_ctg2").text[1:-1]
+            doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(
+                ".gs_ctg2").text[1:-1]
             article: ArticleDict = dict(title=title, link=link, doc_link=doc_link, doc_kind=doc_kind)
             articles.append(article)
     else:  # Only Defined Extensions
@@ -90,7 +110,8 @@ def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[
         while count < limit and has_next:
             response: requests.Response = requests.get("https://scholar.google.com.br/scholar", params=params)
             if response.status_code != 200:
-                logger.warning(f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
+                logger.warning(
+                    f"Couldn't reach https://scholar.google.com.br/scholar for scraping. Status Code: {response.status_code}")
                 print("Failed.")
                 return articles
 
@@ -100,7 +121,8 @@ def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[
 
                 doc_div: Optional[bs4.element.Tag] = article_div.select_one(".gs_or_ggsm a")
                 if doc_div is None: continue
-                doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(".gs_ctg2").text[1:-1]
+                doc_kind: Union[Literal["PDF"], Literal["HTML"]] = article_div.select_one(".gs_or_ggsm a").select_one(
+                    ".gs_ctg2").text[1:-1]
                 if doc_kind not in exts: continue
 
                 title: str = article_div.select_one(".gs_rt a").text
@@ -124,14 +146,23 @@ def scrape_scholar(query: str, limit: int = 5, lang: str = "en", exts: Optional[
 def main() -> None:
     logger.debug("Program Start")
     subject: str = "Natural Language Processing"
-    articles: list[ArticleDict] = scrape_scholar(subject, 5, "en", ["PDF", "HTML"])
-    # print(*articles, sep='\n')
+
+    articles: List[ArticleDict]
+    if IS_SCRAPING:
+        articles = scrape_scholar(subject, 5, "en", ["PDF", "HTML"])
+    else:
+        articles = DEFAULT_ARTICLES
+
+    print("[Articles]".center(80, '-'))
+    for article in articles:
+        print(f"{article['title']}: {article['doc_link']}")
+    print("".center(80, '-'))
     for article in articles:
         url: str = article["doc_link"]
-        reports: list[str] = reports_from_site(url, kind=article['doc_kind'])
+        reports: List[str] = reports_from_site(url, kind=article['doc_kind'])
         print(f"{article['title']}({article['doc_link']}): {len(reports)} sentences.")
         start: int = len(reports) // 4
-        for report in reports[start:start+3]:
+        for report in reports[start:start + 3]:
             print(f"> '{report}'")
         print("...\n")
 
