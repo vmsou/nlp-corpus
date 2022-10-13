@@ -25,4 +25,4 @@ Se você ter acesso a um terminal
 ```
 
 ## Status
-<h4 align="center"> 🚧 Em Desenvolvimento 🚧️ </h4>
+<h4 align="center"> ✔️ Finalizado ✔️ </h4>
